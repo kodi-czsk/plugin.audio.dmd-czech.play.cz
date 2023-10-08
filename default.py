@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import re
 import urllib
 import sys
@@ -24,25 +23,15 @@ HEADERS = {
 }
 
 
-def http_get_and_remove_whitespace(url: str) -> str:
-    response = requests.get(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-GB; rv:1.9.0.3) Gecko/2008092417 Firefox/3.0.3"
-        },
-    )
-    response.raise_for_status()
-    return response.text.replace("\t", "").replace("\r", "").replace("\n", "")
-
-
-def SEZNAM():
+def generate_station_list() -> None:
+    """Generate and display a mesh of available play.cz stations in Kodi UI."""
     response = requests.get("http://api.play.cz/xml/getRadios", headers=HEADERS)
     response.raise_for_status()
     match = re.compile(
         "<title>.+?CDATA\[(.+?)\]\]></title>\s<description>.+?CDATA\[(.+?)\]\]></description>\s<shortcut>.+?CDATA\[(.+?)\]\]></shortcut>"
     ).findall(response.text)
     for title, description, shortcut in match:
-        addDir(
+        add_station_to_list(
             title,
             shortcut,
             1,
@@ -52,7 +41,8 @@ def SEZNAM():
     xbmc.executebuiltin("Container.SetViewMode(51)")
 
 
-def LINK(url):
+def play_stream(url) -> None:
+    """Find the highest bitrate mp3 stream and start playing it."""
     shortcut = url
     url = "http://api.play.cz/xml/getAllStreams/" + url
     xml = http_get_and_remove_whitespace(url)
@@ -64,43 +54,14 @@ def LINK(url):
     url = f"http://api.play.cz/xml/getStream/{shortcut}/mp3/{max_bitrate}"
     xml = http_get_and_remove_whitespace(url)
     streams = re.compile("<pubpoint>.+?CDATA\[(.+?)\]\]></pubpoint>").findall(xml)
-    return addLink(
-        f"mp3 {max_bitrate} kbps",
-        streams[0],  # Looks like there is always just 1 stream
-        f"http://api.play.cz/static/radio_logo/t200/{shortcut}.png",
-        "",
-    )
+
+    # Play the music stream
+    player = xbmc.Player()
+    player.play(streams[0])  # Looks like there is always just 1 stream
 
 
-def get_params():
-    param = []
-    paramstring = sys.argv[2]
-    if len(paramstring) >= 2:
-        params = sys.argv[2]
-        cleanedparams = params.replace("?", "")
-        if params[len(params) - 1] == "/":
-            params = params[0 : len(params) - 2]
-        pairsofparams = cleanedparams.split("&")
-        param = {}
-        for i in range(len(pairsofparams)):
-            splitparams = {}
-            splitparams = pairsofparams[i].split("=")
-            if (len(splitparams)) == 2:
-                param[splitparams[0]] = splitparams[1]
-
-    return param
-
-
-def addLink(name, url, iconimage, comment):
-    liz = xbmcgui.ListItem(name)
-    liz.setArt({"icon": iconimage, "thumb": iconimage})
-    liz.setInfo(type="music", infoLabels={"title": name, "comment": comment})
-    return xbmcplugin.addDirectoryItem(
-        handle=int(sys.argv[1]), url=url, listitem=liz, isFolder=False
-    )
-
-
-def addDir(name, url, mode, iconimage, comment):
+def add_station_to_list(name, url, mode, iconimage, comment) -> bool:
+    """Add a single station to the mesh of Kodi stations."""
     u = f"{sys.argv[0]}?url={urllib.parse.quote_plus(url)}&mode={mode}&name={urllib.parse.quote_plus(name)}"
     liz = xbmcgui.ListItem(name)
     liz.setArt({"icon": "DefaultFolder.png", "thumb": iconimage})
@@ -110,29 +71,27 @@ def addDir(name, url, mode, iconimage, comment):
     )
 
 
-params = get_params()
-url = None
-name = None
-mode = None
-
-try:
-    url = urllib.parse.unquote_plus(params["url"])
-except:
-    url = ""
-try:
-    name = urllib.parse.unquote_plus(params["name"])
-except:
-    pass
-try:
-    mode = int(params["mode"])
-except:
-    pass
+def http_get_and_remove_whitespace(url: str) -> str:
+    response = requests.get(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-GB; rv:1.9.0.3) Gecko/2008092417 Firefox/3.0.3"
+        },
+    )
+    response.raise_for_status()
+    return response.text.replace("\t", "").replace("\r", "").replace("\n", "")
 
 
-if mode == None or url == None or len(url) < 1:
-    SEZNAM()
+def main() -> None:
+    """Either display a list of available play.cz stations or start playing on depending on mode."""
+    params = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(sys.argv[2]).query))
+    mode = params.get("mode")
+    if not mode:
+        generate_station_list()
+        xbmcplugin.endOfDirectory(int(sys.argv[1]))
+    elif mode == "1":
+        play_stream(params["url"])
 
-elif mode == 1:
-    LINK(url)
 
-xbmcplugin.endOfDirectory(int(sys.argv[1]))
+if __name__ == "__main__":
+    main()
